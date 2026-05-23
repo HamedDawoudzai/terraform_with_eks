@@ -70,7 +70,7 @@ resource "null_resource" "docker_build_push" {
   provisioner "local-exec" {
     command = <<-EOT
       aws ecr get-login-password --region ${var.aws_region} | docker login --username AWS --password-stdin ${local.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com
-      docker build -t ${local.ecr_url}:latest ${path.module}/../app
+      docker build --platform linux/amd64 -t ${local.ecr_url}:latest ${path.module}/../app
       docker push ${local.ecr_url}:latest
     EOT
   }

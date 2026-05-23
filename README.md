@@ -56,7 +56,7 @@ User Request
 1. IAM roles for the EKS cluster and worker nodes
 2. VPC with public and private subnets across 2 availability zones
 3. Internet Gateway and NAT Gateway for network routing
-4. EKS cluster with a managed node group (2x `t3.medium`)
+4. EKS cluster with a managed node group (2x `t3.small`)
 5. ECR repository for the Docker image
 6. Builds and pushes the Docker image to ECR
 7. Kubernetes Deployment (2 replicas) and LoadBalancer Service
@@ -117,7 +117,7 @@ User Request
 |--------|---------|
 | `vpc`  | Creates a VPC with public and private subnets across 2 AZs, an Internet Gateway, a NAT Gateway (with Elastic IP), and associated route tables. Private subnets route outbound traffic through the NAT. |
 | `iam`  | Defines two IAM roles: a cluster role (with `AmazonEKSClusterPolicy`) and a worker role (with `AmazonEKSWorkerNodePolicy`, `AmazonEKS_CNI_Policy`, `AmazonEC2ContainerRegistryReadOnly`). |
-| `eks`  | Provisions the EKS cluster in the private subnets with a public API endpoint, a managed node group (2x `t3.medium`, scaling 1-3), and a security group for worker node communication. |
+| `eks`  | Provisions the EKS cluster in the private subnets with a public API endpoint, a managed node group (2x `t3.small`, scaling 1-3), and a security group for worker node communication. |
 
 The root `main.tf` also manages the ECR repository, Docker image build/push, and Kubernetes resources directly using the `kubernetes` provider.
 
@@ -177,7 +177,7 @@ Expected response:
 
 ## Cost Warning
 
-> **Running a managed node EKS cluster with 2 `t3.medium` nodes will cost approximately $3/day.** Remember to destroy your resources when you're done testing.
+> **Running a managed node EKS cluster with 2 `t3.small` nodes will cost approximately $3/day.** Remember to destroy your resources when you're done testing.
 
 ## Cleanup
 
