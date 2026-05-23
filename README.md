@@ -1,148 +1,185 @@
-# Hamed's Hello World API on EKS with Terraform
+# Hamed's Hello World API on AWS EKS with Terraform
 
-A containerized Node.js API deployed to **AWS EKS** using **Terraform** and **Kubernetes**.
+> Inspired by [Robert D'Ippolito](https://github.com/robertdippolito/eks-infrastructure-iac) — this repo is a learning-oriented adaptation of his production-grade EKS setup, simplified to focus on understanding the IaC workflow end-to-end.
 
-## Overview
+A containerized Node.js API deployed to **AWS EKS** using **Terraform**. Everything — networking, the cluster, the Docker image build, and the Kubernetes deployment — is stood up with a single `terraform apply`.
 
-This project provisions cloud infrastructure on AWS and deploys a simple Express API that returns `{ "message": "hello world from Hamed's EKS cluster!" }`. Built as a hands-on project to learn Terraform, EKS, and Kubernetes from the ground up.
+---
 
-Everything is deployed through a single `terraform apply`: the VPC, IAM roles, EKS cluster, ECR repository, Docker image build/push, and Kubernetes deployment + service.
+## Why I Built This
+
+I already had hands-on experience with Kubernetes and had worked with both AKS (Azure) and EKS (AWS) before. What I wanted to build was a project that wires it all together using **Infrastructure as Code** — specifically Terraform — so that the entire stack is version-controlled, repeatable, and deployable from a single command rather than a mix of console clicks and manual `kubectl` commands.
+
+---
+
+## What the App Does
+
+A simple Express API with two endpoints:
+
+| Endpoint  | Response                                          |
+|-----------|---------------------------------------------------|
+| `/hello`  | `{ "message": "hello world from Hamed's EKS cluster!" }` |
+| `/health` | `{ "status": "healthy" }` (used by Kubernetes health checks) |
+
+---
+
+## Key Terms (Beginner Friendly)
+
+If you're new to AWS or cloud infrastructure, these terms come up a lot:
+
+| Term | What it means |
+|------|---------------|
+| **Terraform** | A tool that lets you describe cloud infrastructure in code (`.tf` files) and create/destroy it with simple commands |
+| **IaC** | Infrastructure as Code — managing servers, networks, and services through code instead of clicking around a cloud console |
+| **VPC** | Virtual Private Cloud — your own private, isolated network inside AWS. Think of it as your building before you put any rooms (subnets) in it |
+| **Subnet** | A segment of your VPC. Public subnets are internet-facing; private subnets are internal only |
+| **IGW** | Internet Gateway — the door between your VPC and the public internet |
+| **NAT Gateway** | Lets resources in private subnets reach the internet (e.g. to pull updates) without being reachable from the internet themselves |
+| **IAM** | Identity and Access Management — AWS's permission system. Defines *who* (or what service) can do *what* |
+| **EKS** | Elastic Kubernetes Service — AWS's managed Kubernetes. AWS runs the control plane (the brain of the cluster) so you only manage the worker nodes |
+| **ECR** | Elastic Container Registry — AWS's private Docker image registry, like Docker Hub but inside your AWS account |
+| **Managed Node Group** | A group of EC2 virtual machines that EKS uses as worker nodes, with scaling managed automatically |
+
+---
 
 ## Architecture
 
 ```
-User Request
-  -> AWS Load Balancer (:80)
-    -> Kubernetes Service
-      -> hello-api Pods (running on EKS Managed Nodes)
-
-┌─────────────────────────────────────────────────────────┐
-│                          AWS                            │
-│                                                         │
-│  ┌────────────────── VPC (10.0.0.0/16) ──────────────┐  │
-│  │                                                    │  │
-│  │  ┌──────────────┐          ┌──────────────┐        │  │
-│  │  │ Public       │          │ Public       │        │  │
-│  │  │ Subnet AZ1   │          │ Subnet AZ2   │        │  │
-│  │  │ (IGW + NAT)  │          │              │        │  │
-│  │  └──────┬───────┘          └──────────────┘        │  │
-│  │         │                                          │  │
-│  │  ┌──────┴───────┐          ┌──────────────┐        │  │
-│  │  │ Private      │          │ Private      │        │  │
-│  │  │ Subnet AZ1   │          │ Subnet AZ2   │        │  │
-│  │  │ ┌──────────┐ │          │ ┌──────────┐ │        │  │
-│  │  │ │  Worker  │ │          │ │  Worker  │ │        │  │
-│  │  │ │  Node    │ │          │ │  Node    │ │        │  │
-│  │  │ │(t3.med)  │ │          │ │(t3.med)  │ │        │  │
-│  │  │ └──────────┘ │          │ └──────────┘ │        │  │
-│  │  └──────────────┘          └──────────────┘        │  │
-│  │                                                    │  │
-│  │             ┌────────────────────────┐              │  │
-│  │             │     EKS Cluster        │              │  │
-│  │             │  ┌──────────────────┐  │              │  │
-│  │             │  │  hello-api       │  │              │  │
-│  │             │  │  Deployment (x2) │  │              │  │
-│  │             │  └──────────────────┘  │              │  │
-│  │             │  ┌──────────────────┐  │              │  │
-│  │             │  │  LoadBalancer    │──┼──► :80       │  │
-│  │             │  │  Service         │  │              │  │
-│  │             │  └──────────────────┘  │              │  │
-│  │             └────────────────────────┘              │  │
-│  └────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────┘
+Internet
+   |
+   v
+AWS Load Balancer  (port 80)
+   |
+   v
+Kubernetes Service
+   |
+   v
+hello-api Pods  (2 replicas, running on EKS worker nodes)
 ```
 
-**Terraform provisions (in order):**
-1. IAM roles for the EKS cluster and worker nodes
-2. VPC with public and private subnets across 2 availability zones
-3. Internet Gateway and NAT Gateway for network routing
-4. EKS cluster with a managed node group (2x `t3.small`)
-5. ECR repository for the Docker image
-6. Builds and pushes the Docker image to ECR
-7. Kubernetes Deployment (2 replicas) and LoadBalancer Service
+### What Terraform Creates Inside AWS
+
+```
+┌──────────────────────────────────────────────────────────┐
+│                         AWS                              │
+│                                                          │
+│  ┌──────────────── VPC (10.0.0.0/16) ─────────────────┐  │
+│  │                                                     │  │
+│  │   Public Subnets (AZ1 + AZ2)                        │  │
+│  │   ┌─────────────────────────────────────────────┐   │  │
+│  │   │  Internet Gateway  ──►  NAT Gateway          │   │  │
+│  │   └─────────────────────────────────────────────┘   │  │
+│  │                     │                               │  │
+│  │   Private Subnets (AZ1 + AZ2)                        │  │
+│  │   ┌─────────────────────────────────────────────┐   │  │
+│  │   │  Worker Node (t3.small)  Worker Node (t3.small)│  │  │
+│  │   │                                             │   │  │
+│  │   │          EKS Cluster                        │   │  │
+│  │   │    ┌──────────────────────────────┐         │   │  │
+│  │   │    │  hello-api Pod  hello-api Pod│         │   │  │
+│  │   │    │  LoadBalancer Service  ──────┼──► :80  │   │  │
+│  │   │    └──────────────────────────────┘         │   │  │
+│  │   └─────────────────────────────────────────────┘   │  │
+│  └─────────────────────────────────────────────────────┘  │
+│                                                          │
+│  ECR Repository  (stores the Docker image)               │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
 
 ## Tech Stack
 
-| Layer          | Technology         |
-|----------------|--------------------|
-| Infrastructure | Terraform, AWS     |
-| Orchestration  | Amazon EKS         |
-| Application    | Node.js, Express   |
-| Container      | Docker, Amazon ECR |
-| CI/CD          | GitHub Actions     |
+| Layer          | Technology           |
+|----------------|----------------------|
+| Infrastructure | Terraform, AWS       |
+| Networking     | AWS VPC, NAT Gateway |
+| Orchestration  | Amazon EKS           |
+| Application    | Node.js, Express     |
+| Container      | Docker, Amazon ECR   |
+| CI/CD          | GitHub Actions       |
+
+---
 
 ## Project Structure
 
 ```
 .
-├── terraform/                              # Infrastructure as Code
-│   ├── main.tf                             # Root module: wires all child modules + K8s resources
-│   ├── variables.tf                        # Root-level input variables
-│   ├── outputs.tf                          # Root-level outputs (including API URL)
-│   ├── provider.tf                         # AWS + Kubernetes provider configuration
-│   ├── terraform.tfvars.example            # Example variable values
-│   └── modules/                            # Reusable Terraform modules
-│       ├── vpc/                            # VPC, subnets, IGW, NAT, route tables
-│       │   ├── main.tf
-│       │   ├── variables.tf
-│       │   └── outputs.tf
-│       ├── iam/                            # IAM roles & policies for cluster + workers
-│       │   ├── main.tf
-│       │   ├── variables.tf
-│       │   └── outputs.tf
-│       └── eks/                            # EKS cluster, managed node group, security group
-│           ├── main.tf
-│           ├── variables.tf
-│           └── outputs.tf
+├── app/                          # The API application
+│   ├── index.js                  # Express server (/hello + /health)
+│   ├── package.json
+│   ├── Dockerfile                # Builds a node:20-alpine image
+│   └── .dockerignore
 │
-├── k8s/                                    # Kubernetes manifests (reference only)
+├── terraform/                    # All infrastructure code
+│   ├── main.tf                   # Root: wires modules + ECR + Docker build + K8s resources
+│   ├── variables.tf              # Input variables (region, cluster name, instance type, etc.)
+│   ├── outputs.tf                # Outputs (API URL, kubectl config command)
+│   ├── provider.tf               # AWS + Kubernetes provider config
+│   ├── backend.tf                # Remote state: S3 bucket + DynamoDB lock table
+│   ├── terraform.tfvars.example  # Example variable values to copy
+│   └── modules/
+│       ├── vpc/                  # VPC, subnets, IGW, NAT Gateway, route tables
+│       ├── iam/                  # IAM roles for EKS control plane + worker nodes
+│       └── eks/                  # EKS cluster, managed node group, security group
+│
+├── k8s/                          # Raw Kubernetes YAML (reference only — Terraform manages these)
 │   ├── deployment.yaml
 │   └── service.yaml
 │
-├── app/                                    # Application code
-│   ├── index.js                            # Express API server
-│   ├── package.json                        # Node.js dependencies
-│   ├── Dockerfile                          # Container image definition
-│   └── .dockerignore
+├── bootstrap.sh                  # One-time script: creates S3 bucket + DynamoDB table for Terraform state
 │
 ├── .github/workflows/
-│   └── deploy.yml                          # CI/CD pipeline
+│   └── deploy.yml                # GitHub Actions: validate + apply or destroy (manual trigger)
 │
 └── README.md
 ```
 
-## Module Breakdown
+---
 
-| Module | Purpose |
-|--------|---------|
-| `vpc`  | Creates a VPC with public and private subnets across 2 AZs, an Internet Gateway, a NAT Gateway (with Elastic IP), and associated route tables. Private subnets route outbound traffic through the NAT. |
-| `iam`  | Defines two IAM roles: a cluster role (with `AmazonEKSClusterPolicy`) and a worker role (with `AmazonEKSWorkerNodePolicy`, `AmazonEKS_CNI_Policy`, `AmazonEC2ContainerRegistryReadOnly`). |
-| `eks`  | Provisions the EKS cluster in the private subnets with a public API endpoint, a managed node group (2x `t3.small`, scaling 1-3), and a security group for worker node communication. |
+## How It Works
 
-The root `main.tf` also manages the ECR repository, Docker image build/push, and Kubernetes resources directly using the `kubernetes` provider.
+Terraform handles the full stack in one apply, in this order:
+
+1. **IAM roles** — cluster role (for EKS control plane) and worker node role (for EC2 instances), each with the minimum required AWS policies
+2. **VPC + networking** — VPC, public/private subnets across 2 AZs, Internet Gateway, NAT Gateway, route tables
+3. **EKS cluster** — control plane + managed node group (`t3.small`, 1–3 nodes). Workers sit in private subnets; only the load balancer is public-facing
+4. **ECR repository** — private Docker registry for the API image
+5. **Docker build + push** — runs as a local-exec provisioner; builds for `linux/amd64` (important if you're on an Apple Silicon Mac) and pushes to ECR
+6. **Kubernetes Deployment + Service** — 2 replicas with liveness/readiness probes, exposed via an AWS LoadBalancer on port 80
+
+---
 
 ## Prerequisites
 
 - [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) configured with credentials
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.0
-- [Docker](https://docs.docker.com/get-docker/) (must be running locally for image builds)
+- [Docker](https://docs.docker.com/get-docker/) running locally
+
+---
 
 ## Deploy
 
-### 1. Clone the repository
+### 1. Bootstrap remote state (one-time only)
+
+Before running Terraform for the first time, create the S3 bucket and DynamoDB table it uses to store state:
 
 ```bash
-git clone https://github.com/<your-username>/hello-eks-terraform.git
-cd hello-eks-terraform
+chmod +x bootstrap.sh
+./bootstrap.sh
 ```
 
-### 2. Configure variables
+### 2. Clone and configure
 
 ```bash
+git clone https://github.com/hameddawoudzai/terraform_with_aks.git
+cd terraform_with_aks
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 ```
 
-### 3. Deploy everything
+Edit `terraform.tfvars` with your values if needed (region, cluster name, etc.).
+
+### 3. Deploy
 
 ```bash
 cd terraform
@@ -151,21 +188,11 @@ terraform plan
 terraform apply
 ```
 
-That's it. A single `terraform apply` provisions all infrastructure, builds and pushes the Docker image, and deploys the app to the cluster. Takes approximately 15-20 minutes.
+Takes approximately 15–20 minutes. Terraform will output the API URL when it finishes.
 
-### 4. Access the API
-
-Terraform outputs the API URL when it finishes. You can also run:
+### 4. Test it
 
 ```bash
-terraform output api_url
-```
-
-Or configure kubectl and check manually:
-
-```bash
-$(terraform output -raw configure_kubectl)
-kubectl get svc hello-api
 curl http://<EXTERNAL-IP>/hello
 ```
 
@@ -175,41 +202,57 @@ Expected response:
 { "message": "hello world from Hamed's EKS cluster!" }
 ```
 
+You can also get the URL directly:
+
+```bash
+terraform output api_url
+```
+
+Or configure kubectl and inspect the service:
+
+```bash
+$(terraform output -raw configure_kubectl)
+kubectl get svc hello-api
+```
+
+---
+
+## GitHub Actions
+
+The repo includes a manual CI/CD workflow at `.github/workflows/deploy.yml`. Trigger it from the GitHub Actions tab with either `deploy` or `destroy`.
+
+Required secrets:
+
+| Secret                  | Value                        |
+|-------------------------|------------------------------|
+| `AWS_ACCESS_KEY_ID`     | Your AWS access key          |
+| `AWS_SECRET_ACCESS_KEY` | Your AWS secret key          |
+| `AWS_REGION`            | e.g. `us-east-1`            |
+
+The `deploy` action validates formatting, runs `terraform apply`, and configures kubectl. The `destroy` action tears everything down.
+
+---
+
 ## Cost Warning
 
-> **Running a managed node EKS cluster with 2 `t3.small` nodes will cost approximately $3/day.** Remember to destroy your resources when you're done testing.
+> Running 2 `t3.small` EKS nodes costs roughly **$2–3/day**. Run `terraform destroy` when you're done to avoid unexpected charges.
+
+---
 
 ## Cleanup
-
-A single command tears everything down:
 
 ```bash
 cd terraform
 terraform destroy
 ```
 
-## GitHub Actions
+---
 
-The repo includes a GitHub Actions workflow (`.github/workflows/deploy.yml`) for CI/CD. To use it, add these secrets to your repository:
+## What I Got Out of This
 
-| Secret                  | Description                |
-|-------------------------|----------------------------|
-| `AWS_ACCESS_KEY_ID`     | Your AWS access key        |
-| `AWS_SECRET_ACCESS_KEY` | Your AWS secret key        |
-| `AWS_REGION`            | AWS region (e.g. us-east-1)|
-
-The workflow is triggered manually via `workflow_dispatch`.
-
-## Lessons Learned
-
-- Learned how to write custom Terraform modules and wire them together from a root module
-- Learned Terraform state management and how `terraform plan` / `apply` / `destroy` work as a lifecycle
-- Learned how to use the Kubernetes Terraform provider to deploy workloads directly from Terraform
-- Learned IAM role design: separate roles for the EKS control plane vs. worker nodes, each with least-privilege policies
-- Learned VPC networking: public vs. private subnets, Internet Gateway vs. NAT Gateway, and route table associations
-- Learned EKS authentication and how the Kubernetes provider connects to a cluster using cluster certificates and auth tokens
-- Learned infrastructure cost awareness: keeping node counts low and using `terraform destroy` to avoid surprise bills
-
-## License
-
-MIT
+- Got comfortable with writing Terraform modules and understanding how a root module wires child modules together
+- Solidified how Terraform state works — why remote state in S3 matters, and why you need the DynamoDB lock table to prevent conflicts
+- Understood the IAM role separation between the EKS control plane and worker nodes, and which policies each actually needs
+- Helped build an intuition for VPC design — why workers go in private subnets, and what the NAT Gateway actually does for them
+- Picked up the cross-compilation nuance: building Docker images with `--platform linux/amd64` when developing on an Apple Silicon Mac so they actually run on x86 EKS nodes
+- Got a clearer picture of how Terraform's `kubernetes` provider authenticates against a cluster using a short-lived token rather than a static kubeconfig
