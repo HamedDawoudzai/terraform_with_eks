@@ -150,6 +150,8 @@ resource "kubernetes_deployment" "hello_api" {
 # --- Kubernetes Service ---
 
 resource "kubernetes_service" "hello_api" {
+  depends_on = [kubernetes_deployment.hello_api]
+
   metadata {
     name = "hello-api"
     labels = {

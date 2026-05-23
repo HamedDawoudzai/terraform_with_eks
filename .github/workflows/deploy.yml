@@ -113,11 +113,30 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Configure kubectl
+        working-directory: .
+        run: |
+          aws eks update-kubeconfig --region ${{ env.AWS_REGION }} --name ${{ env.CLUSTER_NAME }} || true
+
+      - name: Delete K8s resources via kubectl
+        working-directory: .
+        run: |
+          kubectl delete svc hello-api --wait=true --timeout=180s 2>/dev/null || true
+          kubectl delete deployment hello-api --wait=true --timeout=60s 2>/dev/null || true
+          echo "Waiting for LoadBalancer cleanup..."
+          sleep 60
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Init
         run: terraform init
+
+      - name: Remove K8s resources from state
+        run: |
+          terraform state rm kubernetes_service.hello_api 2>/dev/null || true
+          terraform state rm kubernetes_deployment.hello_api 2>/dev/null || true
+          terraform state rm null_resource.docker_build_push 2>/dev/null || true
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
