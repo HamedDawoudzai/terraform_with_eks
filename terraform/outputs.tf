@@ -25,5 +25,5 @@ output "ecr_repository_url" {
 
 output "api_url" {
   description = "Hamed's API endpoint (hit /hello)"
-  value       = "http://${kubernetes_service.hello_api.status[0].load_balancer[0].ingress[0].hostname}/hello"
+  value       = try("http://${kubernetes_service.hello_api.status[0].load_balancer[0].ingress[0].hostname}/hello", "LB not yet provisioned")
 }
