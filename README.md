@@ -163,14 +163,20 @@ Edit `terraform.tfvars` with your values if needed.
 
 ### 3. Deploy
 
+The Kubernetes provider needs the EKS cluster to exist before it can configure itself, so the first deploy is a two-phase apply:
+
 ```bash
 cd terraform
 terraform init
-terraform plan
-terraform apply
+
+# Phase 1: create the EKS cluster
+terraform apply -target=module.eks -auto-approve
+
+# Phase 2: build the image and deploy the app
+terraform apply -auto-approve
 ```
 
-Takes approximately 15-20 minutes. Terraform will output the API URL when it finishes.
+Takes approximately 15-20 minutes total. Terraform will output the API URL when it finishes.
 
 ### 4. Test it
 
