@@ -2,7 +2,7 @@
 
 > Inspired by [Robert D'Ippolito](https://github.com/robertdippolito/eks-infrastructure-iac). This repo is a learning-oriented adaptation of his production-grade EKS setup, simplified to focus on understanding the IaC workflow end-to-end.
 
-A containerized Node.js API deployed to **AWS EKS** using **Terraform**. Everything (networking, the cluster, the Docker image build, and the Kubernetes deployment) is stood up with a single `terraform apply`.
+A containerized Node.js API deployed to **AWS EKS** using **Terraform**. Everything (networking, the cluster, the Docker image build, and the Kubernetes deployment) is handled by Terraform through `terraform apply`.
 
 ## Why I Built This
 
@@ -148,6 +148,8 @@ Before running Terraform for the first time, create the S3 bucket and DynamoDB t
 chmod +x bootstrap.sh
 ./bootstrap.sh
 ```
+
+Terraform stores a state file to track what it has already created. Without it, Terraform has no memory between runs and will try to recreate existing resources. The S3 bucket holds that state file and the DynamoDB table prevents concurrent applies from corrupting it. These need to be created manually before anything else.
 
 ### 2. Clone and configure
 
