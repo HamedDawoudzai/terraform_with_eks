@@ -77,6 +77,10 @@ jobs:
       - name: Terraform Validate
         run: terraform validate
 
+      - name: Import existing resources into state (if left behind by a partial destroy)
+        run: |
+          terraform import aws_ecr_repository.hello_api hello-api 2>/dev/null || true
+
       - name: Apply core infrastructure
         run: |
           terraform apply -auto-approve \
