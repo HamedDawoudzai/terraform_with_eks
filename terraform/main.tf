@@ -44,6 +44,11 @@ module "eks" {
   node_desired_size  = var.node_desired_size
   node_min_size      = var.node_min_size
   node_max_size      = var.node_max_size
+
+  # Ensures node group is created only after all IAM policy attachments are
+  # complete. Without this, Terraform can start the node group as soon as the
+  # role ARN exists, before the required policies are attached.
+  depends_on = [module.iam]
 }
 
 # --- ECR Repository ---
